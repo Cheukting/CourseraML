@@ -1,0 +1,128 @@
+---
+title: "Barbell Lifts Prediction"
+author: "Cheuk T Ho"
+date: "17 September 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.width=12, fig.height=8) 
+```
+
+## Introduction
+
+In this project, the goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the way they are doing the barbell lifts. Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E)
+
+Read more about the data set: http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises#ixzz4tXPk2rKz
+
+## Reading, Pre-processing and Exporing Data
+
+```{r}
+library(caret)
+library(AppliedPredictiveModeling)
+training <- read.csv("pml-training.csv") 
+testing <- read.csv("pml-testing.csv") 
+head(names(training),10)
+sum(is.na(training))
+```
+
+Column 1-7 are lables for the data entry, those are not predictors which should be trimmed. Besides, There are lots of NA's mainly due to some coulmns consists mostly of NAs, those clolumns have lots of missing data and is highly unbalanced. Clean the data by filtering out those columns. 
+
+```{r}
+trainingcl <- training[,-(1:7)]
+cleancols <- colSums(is.na(trainingcl)) == 0
+trainingcl <- trainingcl[,cleancols]
+```
+
+Now, we can look at the feature plot of some of the predictors:
+```{r cache=TRUE}
+transparentTheme(trans = .2)
+featurePlot(x = trainingcl[, 1:4], 
+            y = trainingcl$classe, 
+            plot = "pairs",
+            auto.key = list(columns = 5))
+```
+
+Seems like there's some correlation, which require more cleaning.
+
+First, check any of the remaining predictors are near zero-variance and get rid of them. These near zero-variance means that the predictor may have a single value and may crash the model.
+
+```{r cache=TRUE}
+nzv <- nearZeroVar(trainingcl[,-length(trainingcl)])
+trainingcl <- trainingcl[,-nzv]
+```
+
+Then eliminate the highly correlated predictors to increase efficiency in training.
+
+```{r cache=TRUE}
+highCor <- findCorrelation(cor(trainingcl[,-length(trainingcl)]), cutoff = .75)
+trainingcl <- trainingcl[,-highCor]
+```
+
+Seperate the Training data in to Train data (for training the model) and Validation data (to estimate accuracy of different models)
+
+```{r}
+set.seed(123)
+inTrain <- createDataPartition(trainingcl$classe, p=.80, list=FALSE)
+train <- trainingcl[inTrain,]
+validation <- trainingcl[-inTrain,]
+```
+
+## Modeling with Boosting (gmb) and Ramdom Forest (RF)
+
+For classification prediction, we will try two models,boosting (gmb) and random forest (rf). In training each model, cross-validaiton is used in finding the best parameters. After training the model, validation data set is used to estimate the accuracy.
+
+Train the model of Boosting (gmb):
+
+```{r cache=TRUE}
+fitControl <- trainControl(method = 'cv', number = 3, returnResamp = 'none', classProbs = TRUE)
+set.seed(99)
+gbmmod <- train(classe~.,data = train,method = "gbm",preProc = c("center", "scale"),trControl = fitControl, verbose=FALSE)
+```
+
+Train the model of Ramdom Forest
+
+```{r cache=TRUE}
+fitControl <- trainControl(method="cv", number = 3, search="random")
+set.seed(88)
+rfmod <- train(classe~.,data=train,method="rf", trControl = fitControl, ntree = 50)
+```
+
+## Cross Validation, Model Choosing and Error Estimation
+
+Look at the confusion matrix for the gbm model:
+```{r cache=TRUE}
+confusionMatrix(data = predict(gbmmod,validation), reference = validation$classe)
+```
+The overall accuracy of the model is 95%
+
+Look at the confusion matrix for the rf model:
+```{r cache=TRUE}
+confusionMatrix(data = predict(rfmod,validation), reference = validation$classe)
+```
+The overall accuracy of the model is 99%, that's a very good accuracy without any leackage.
+
+From error estimation, RF is doing better, that would be the choice in predicting the test result.
+
+## Testing and Concluction
+
+Using the model RF to predict the test result. We are expecting an accuracy 98.9% to 99.5%, since the test set is much smaller than the validation set, the accuracy would have a higher variance than that.
+
+```{r}
+result = predict(rfmod,testing)
+# result is not printed due to honer code for the project quiz
+```
+
+
+## Credit and citation
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+Collaborators:
+
+- Wallace Ugulino (wugulino at inf dot puc-rio dot br)
+- Eduardo Velloso
+- Hugo Fuks 
+
+Read more: http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises#ixzz4t2EOs3Kq
